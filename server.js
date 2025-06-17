@@ -2,6 +2,8 @@ const express = require('express');
 const puppeteer = require('puppeteer');
 const app = express();
 const PORT = process.env.PORT || 3000;
+const GIFEncoder = require('gifencoder'); // updated dependency
+const { createCanvas, loadImage } = require('canvas');
 
 app.use(express.static('public'));
 
@@ -10,31 +12,36 @@ app.get('/countdown.gif', async (req, res) => {
     const page = await browser.newPage();
     await page.goto('http://localhost:' + PORT + '/index.html', { waitUntil: 'networkidle0' });
 
-    const frames = [];
-    for (let i = 0; i < 10; i++) {
-        await page.evaluate(() => updateCountdown());
-        const screenshot = await page.screenshot({ type: 'png' });
-        frames.push(screenshot);
-        await new Promise(r => setTimeout(r, 1000));
-    }
+    const width = 500;
+    const height = 200;
+    const encoder = new GIFEncoder(width, height);
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+    const streamChunks = [];
 
-    const { GifEncoder } = await import('gif-encoder-2');
-    const encoder = new GifEncoder(500, 200);
-    const chunks = [];
-    encoder.on('data', chunk => chunks.push(chunk));
-    encoder.on('end', () => {
+    encoder.createReadStream().on('data', chunk => streamChunks.push(chunk));
+    encoder.createReadStream().on('end', () => {
         res.set('Content-Type', 'image/gif');
-        res.send(Buffer.concat(chunks));
+        res.send(Buffer.concat(streamChunks));
         browser.close();
     });
 
     encoder.start();
-    encoder.setRepeat(0);
-    encoder.setDelay(1000);
+    encoder.setRepeat(0); // 0 = repeat forever
+    encoder.setDelay(1000); // 1 second per frame
     encoder.setQuality(10);
 
-    for (const frame of frames) {
-        encoder.addFrame(frame);
+    for (let i = 0; i < 10; i++) {
+        await page.evaluate(() => updateCountdown());
+        const screenshot = await page.screenshot({ encoding: 'base64' });
+        const img = await loadImage(Buffer.from(screenshot, 'base64'));
+
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+
+        encoder.addFrame(ctx);
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     encoder.finish();
