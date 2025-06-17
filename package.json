@@ -8,7 +8,7 @@
  "dependencies": {
   "canvas": "^2.11.2",
   "express": "^4.18.2",
-  "gif-encoder-2": "^1.0.8",
+  "gifencoder": "^2.0.1",
   "moment-timezone": "^0.5.43"
 }
 }
