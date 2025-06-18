@@ -1,70 +1,46 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
-const GIFEncoder = require('gifencoder');
-const { createCanvas, loadImage } = require('canvas');
+const chromium = require('chrome-aws-lambda');
+const { readFileSync } = require('fs');
+const { join } = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const width = 500;
-const height = 200;
+const port = process.env.PORT || 10000;
 
-app.use(express.static('public'));
+app.get('/', async (req, res) => {
+  const targetDate = new Date('2025-11-04T05:00:00Z'); // 12AM EST
+  const now = new Date();
+  const diff = Math.max(0, targetDate - now);
 
-app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/public/index.html');
-});
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+  const minutes = Math.floor((diff / (1000 * 60)) % 60);
+  const seconds = Math.floor((diff / 1000) % 60);
 
-app.get('/countdown.gif', async (req, res) => {
-  const encoder = new GIFEncoder(width, height);
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext('2d');
-  const chunks = [];
-
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  const browser = await chromium.puppeteer.launch({
+    args: chromium.args,
+    defaultViewport: { width: 300, height: 100 },
+    executablePath: await chromium.executablePath,
+    headless: chromium.headless,
   });
 
-  try {
-    const page = await browser.newPage();
-    await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
+  const page = await browser.newPage();
 
-    const gifStream = encoder.createReadStream();
-    gifStream.on('data', chunk => chunks.push(chunk));
-    gifStream.on('end', () => {
-      res.setHeader('Content-Type', 'image/gif');
-      res.send(Buffer.concat(chunks));
-    });
+  await page.setContent(`
+    <html>
+      <body style="margin:0; background:black; color:white; font-family: sans-serif; font-size: 28px; display: flex; align-items:center; justify-content:center; width: 100%; height: 100%;">
+        ${days} | ${hours} | ${minutes} | ${seconds}
+      </body>
+    </html>
+  `);
 
-    encoder.start();
-    encoder.setRepeat(0);
-    encoder.setDelay(1000);
-    encoder.setQuality(10);
+  const buffer = await page.screenshot({ type: 'png' });
 
-    for (let i = 0; i < 10; i++) {
-      await page.evaluate(() => {
-        if (typeof updateCountdown === 'function') updateCountdown();
-      });
+  await browser.close();
 
-      const screenshot = await page.screenshot({ encoding: 'base64' });
-      const image = await loadImage(Buffer.from(screenshot, 'base64'));
-
-      ctx.clearRect(0, 0, width, height);
-      ctx.drawImage(image, 0, 0, width, height);
-      encoder.addFrame(ctx);
-
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-
-    encoder.finish();
-  } catch (err) {
-    console.error('GIF generation error:', err);
-    res.status(500).send('Error generating GIF');
-  } finally {
-    await browser.close();
-  }
+  res.setHeader('Content-Type', 'image/png');
+  res.send(buffer);
 });
 
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
+app.listen(port, () => {
+  console.log(`✅ Server running on port ${port}`);
 });
